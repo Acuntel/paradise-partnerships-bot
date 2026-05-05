@@ -421,7 +421,16 @@ def _run_developer_source(cfg, source_type_tag, announcements,
         log.info("developer-news: 0 announcements")
         return 0
     from .finder.multi_search import search as multi_search_fn
+    from .finder.developer_news import DEV_NEWS_HOSTS
     from . import scraper
+
+    def _is_news_domain(host_or_email: str) -> bool:
+        """True if the resolved domain belongs to a news outlet -- those
+        are journalists, not builders. Treating them as developer prospects
+        produces noise drafts to wire@suntimes.com etc."""
+        h = host_or_email.lower()
+        return any(news in h for news in DEV_NEWS_HOSTS)
+
     upserted = 0
     for ann in announcements[:max_new]:
         company = ann["company_name"]
@@ -444,11 +453,19 @@ def _run_developer_source(cfg, source_type_tag, announcements,
         if not website:
             log.info("  no website for %s -- skipping", company)
             continue
+        if _is_news_domain(website):
+            log.info("  skip %s -- resolved to news domain (%s)",
+                     company, website)
+            continue
         info = scraper.scrape_business_website(website)
         if not info["best_email"]:
             log.info("  no email for %s -- skipping", company)
             continue
         email = info["best_email"]
+        if _is_news_domain(email):
+            log.info("  skip %s -- email at news domain (%s)",
+                     company, email)
+            continue
         if email in already_emailed:
             continue
         # 3-layer verify
@@ -580,7 +597,7 @@ def cmd_discover(cfg, sources=None, months=6, max_new=200, towns=None):
             elif source_name == "developer_news":
                 from .finder import developer_news
                 ann = developer_news.recent_developer_announcements(
-                    towns, max_total=max_new,
+                    towns, max_total=max_new, months=months,
                 )
                 grand_total += _run_developer_source(
                     cfg, source_type_tag, ann, already, max_new,

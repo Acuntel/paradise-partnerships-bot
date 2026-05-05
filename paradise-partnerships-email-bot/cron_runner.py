@@ -16,6 +16,7 @@ Env vars:
   DAILY_TARGET                     Drafts to attempt this run. Default 15.
   DISCOVER_MAX_NEW                 Cap on new prospects per discover run. Default 100.
   DISCOVER_SOURCES                 Comma-separated source names. Default = bot's own.
+  MONTHS                           Historical search window in months. Default 12.
   RUN_ENABLED                      'false' = exit immediately. Default 'true'.
   STATE_DIR                        Persistent volume mount. Default = project_dir.
 """
@@ -34,6 +35,7 @@ CFG = run.CFG
 DAILY_TARGET = int(os.getenv("DAILY_TARGET", "15"))
 DISCOVER_MAX_NEW = int(os.getenv("DISCOVER_MAX_NEW", "100"))
 DISCOVER_SOURCES = os.getenv("DISCOVER_SOURCES", "") or CFG.default_discover_sources
+MONTHS = int(os.getenv("MONTHS", "12"))
 RUN_ENABLED = os.getenv("RUN_ENABLED", "true").lower() not in ("false", "0", "no")
 
 # Persist DB across cron runs via a Railway volume mounted at STATE_DIR.
@@ -61,13 +63,14 @@ def main():
         log.info("RUN_ENABLED=false -- exiting without running %s", CFG.bot_name)
         return
     log.info("=== %s daily cron ===", CFG.bot_name)
-    log.info("model=%s  daily_target=%d  discover_max=%d  sources=%s",
-             CFG.model, DAILY_TARGET, DISCOVER_MAX_NEW, DISCOVER_SOURCES)
+    log.info("model=%s  daily_target=%d  discover_max=%d  months=%d  sources=%s",
+             CFG.model, DAILY_TARGET, DISCOVER_MAX_NEW, MONTHS, DISCOVER_SOURCES)
     log.info("db: %s", CFG.db_path)
 
     log.info("step 1: discover")
     try:
-        cmd_discover(CFG, sources=DISCOVER_SOURCES, max_new=DISCOVER_MAX_NEW)
+        cmd_discover(CFG, sources=DISCOVER_SOURCES,
+                     max_new=DISCOVER_MAX_NEW, months=MONTHS)
     except Exception as e:
         log.warning("discover failed (non-fatal): %s", e)
 

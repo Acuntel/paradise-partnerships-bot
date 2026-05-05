@@ -94,21 +94,93 @@ def _fetch(url, timeout=TIMEOUT):
     return None
 
 
-def _article_urls(towns, max_results=10):
+def _year_tokens(months: int):
+    """Yield year-string tokens covering the requested historical window.
+
+    months=12 -> ['2026', '2025']
+    months=24 -> ['2026', '2025', '2024']
+    months=36 -> ['2026', '2025', '2024', '2023']
+    """
+    import datetime as _dt
+    today = _dt.date.today()
+    years = max(1, (months + 11) // 12)
+    return [str(today.year - i) for i in range(years + 1)]
+
+
+def _article_urls(towns, max_results=10, months: int = 12):
     """Discover developer-news articles mentioning Chicago multifamily +
-    target towns."""
-    queries = [
+    target towns. Wider query coverage = more announcements.
+    """
+    base = [
+        # Project-type variants
         '"Chicago" "multifamily" "units" announced',
+        '"Chicago" "multifamily" "units" approved',
+        '"Chicago" "multifamily" project breaks ground',
         '"Chicago" "townhome" development plan approved',
+        '"Chicago" "townhome" "units" announced',
         '"Chicago" condominium project unit count',
+        '"Chicago" "condo" tower announced',
+        '"Chicago" "mixed-use" tower units',
+        '"Chicago" "build-to-rent" community',
+        '"Chicago" "senior living" "units" announced',
+        '"Chicago" "hospitality" "rooms" hotel announced',
+        '"Chicago" "boutique hotel" rooms',
+        '"Chicago" "podium" apartment units',
+        '"Chicago" "high-rise" residential units',
+        '"Chicago" "low-rise" residential units',
+        # Stage-of-pipeline variants
+        '"Chicago" multifamily groundbreaking',
+        '"Chicago" multifamily topping out',
+        '"Chicago" multifamily lease-up',
+        '"Chicago" affordable housing units approved',
+        '"Chicago" mixed-income development units',
+        # Suburban-belt variants
+        '"North Shore" Illinois multifamily development units',
+        '"Lake County" Illinois multifamily project units',
+        '"DuPage County" multifamily development units',
+        '"Cook County" multifamily project announced',
+        '"McHenry County" multifamily project',
+        # Site-restricted dives across each publication
         'site:chicagobusiness.com Chicago multifamily',
+        'site:chicagobusiness.com townhome development',
+        'site:chicagobusiness.com developer announces',
         'site:therealdeal.com chicago development',
+        'site:therealdeal.com chicago multifamily',
+        'site:therealdeal.com chicago condo tower',
         'site:rejournals.com Chicago multifamily',
+        'site:rejournals.com Chicago townhome',
+        'site:rejournals.com Chicago groundbreaking',
         'site:bisnow.com chicago multifamily',
+        'site:bisnow.com chicago developer',
+        'site:chicagoyimby.com multifamily',
+        'site:chicagoyimby.com proposed',
+        'site:blockclubchicago.org development announced',
+        'site:urbanize.city chicago units approved',
+        # Principal-role queries (drag the principal name out of coverage)
+        '"Chicago" multifamily CEO announces',
+        '"Chicago" developer founder announces',
+        '"Chicago" "managing partner" multifamily',
+        '"Chicago" "principal" residential development',
     ]
-    for town in towns[:8]:
+
+    # Vintage queries broaden historical reach via year-tagged searches.
+    # Most search engines surface time-relevant hits even without
+    # explicit date operators, so a year token in the query is enough.
+    for year in _year_tokens(months):
+        base.append(f'"Chicago" multifamily {year}')
+        base.append(f'"Chicago" "townhome" {year}')
+        base.append(f'site:chicagobusiness.com Chicago multifamily {year}')
+        base.append(f'site:therealdeal.com chicago development {year}')
+        base.append(f'site:rejournals.com Chicago {year} multifamily')
+
+    queries = list(base)
+    # Cover ALL towns (was first 8) -- doubles or triples surburban hits.
+    for town in towns:
         queries.append(f'"{town}" Illinois multifamily development')
         queries.append(f'"{town}" Illinois townhome project')
+
+    log.info("developer-news: built %d search queries (months=%d, towns=%d)",
+             len(queries), months, len(towns))
     seen = set()
     urls = []
     for q in queries:
@@ -161,8 +233,28 @@ def _extract_company(text):
     return None
 
 
+_NEWS_FALSE_POSITIVE_NAMES = (
+    "subscribe", "related articles", "commercial real estate",
+    "news section", "speaker information", "speaker topics",
+    "about team", "illinois finance", "newsletter",
+    "real deal", "the real deal", "crain", "bisnow", "rejournals",
+    "block club", "urbanize", "tribune", "sun-times", "yimby",
+    "chicago business", "real estate weekly", "press release",
+)
+
+
+def _is_news_artifact(name: str) -> bool:
+    """Reject extracted 'companies' that are obviously news-page artifacts
+    (sidebar headers, subscription CTAs, byline blocks, masthead names)."""
+    if not name:
+        return True
+    n = name.lower().strip()
+    return any(token in n for token in _NEWS_FALSE_POSITIVE_NAMES)
+
+
 def recent_developer_announcements(towns: Iterable[str],
-                                     max_total: int = 60
+                                     max_total: int = 60,
+                                     months: int = 12,
                                      ) -> List[Dict[str, str]]:
     towns = list(towns)
     log.info("developer-news: scanning over %d Chicago-area towns",
@@ -171,7 +263,7 @@ def recent_developer_announcements(towns: Iterable[str],
     seen_companies = set()
     out = []
 
-    for url in _article_urls(towns):
+    for url in _article_urls(towns, months=months):
         if len(out) >= max_total:
             break
         if url in seen_articles:
@@ -189,6 +281,9 @@ def recent_developer_announcements(towns: Iterable[str],
         company = _extract_company(text)
 
         if not company or not (units or location):
+            continue
+        if _is_news_artifact(company):
+            log.debug("skip news-artifact company: %s", company)
             continue
         ckey = company.lower().strip()
         if ckey in seen_companies:
