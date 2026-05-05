@@ -1,6 +1,10 @@
-# Railway deploy config for paradise-partnerships-email-bot.
-# Daily cron at 13:00 UTC = 8am Chicago (CDT).
-# restartPolicyType=NEVER keeps the one-shot from looping.
+# Railway deploy config for paradise-partnerships-bot.
+#
+# ONE-SHOT MODE for the first deploy: cronSchedule is intentionally
+# absent so the deploy runs cron_runner.py exactly once and exits.
+# After we confirm 15 drafts land in Gmail, re-enable daily cron with:
+#
+#   cronSchedule = "0 13 * * *"   # 8am Chicago (CDT) = 13:00 UTC
 
 [build]
 builder = "DOCKERFILE"
@@ -9,4 +13,3 @@ dockerfilePath = "Dockerfile"
 [deploy]
 startCommand = "python cron_runner.py"
 restartPolicyType = "NEVER"
-cronSchedule = "0 13 * * *"
